@@ -303,7 +303,7 @@
         <groupId>*</groupId>
         <routeType>inclusive</routeType>
         <routePatterns>
-          <routePattern>^/(com|org)/somecompany/.*</routePattern>
+          <routePattern>^/(com|org|no)/forskningsradet/.*</routePattern>
         </routePatterns>
         <repositories>
           <repository>snapshots</repository>

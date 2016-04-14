@@ -1,34 +1,69 @@
-FROM jenkins:1.642.1
+FROM java:8-jdk
 
-USER root
-RUN apt-get update \
-      && apt-get install -y sudo \
-      && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y git curl zip && rm -rf /var/lib/apt/lists/*
+
+ENV JENKINS_HOME /var/jenkins_home
+ENV JENKINS_SLAVE_AGENT_PORT 50000
+
 RUN echo "jenkins ALL=NOPASSWD: ALL" >> /etc/sudoers
-USER jenkins
 
-COPY plugins.txt /var/jenkins_home/plugins.txt
-RUN /usr/local/bin/plugins.sh /var/jenkins_home/plugins.txt
+ARG user=jenkins
+ARG group=jenkins
+ARG uid=1000
+ARG gid=1000
 
-# Adding default Jenkins Jobs
-COPY jobs/1-github-seed-job.xml /usr/share/jenkins/ref/jobs/1-github-seed-job/config.xml
-COPY jobs/2-job-dsl-seed-job.xml /usr/share/jenkins/ref/jobs/2-job-dsl-seed-job/config.xml
-COPY jobs/3-conference-app-seed-job.xml /usr/share/jenkins/ref/jobs/3-conference-app-seed-job/config.xml
-COPY jobs/4-selenium2-seed-job.xml /usr/share/jenkins/ref/jobs/4-selenium2-seed-job/config.xml
-COPY jobs/5-docker-admin-seed-job.xml /usr/share/jenkins/ref/jobs/5-docker-admin-seed-job/config.xml
+RUN groupadd -g ${gid} ${group} \
+    && useradd -d "$JENKINS_HOME" -u ${uid} -g ${gid} -m -s /bin/bash ${user}
 
-############################################
-# Configure Jenkins
-############################################
-# Jenkins settings
-COPY config/config.xml /usr/share/jenkins/ref/config.xml
+# Jenkins home directory is a volume, so configuration and build history
+# can be persisted and survive image upgrades
+VOLUME /var/jenkins_home
 
-# Jenkins Settings, i.e. Maven, Groovy, ...
-COPY config/hudson.tasks.Maven.xml /usr/share/jenkins/ref/hudson.tasks.Maven.xml
-COPY config/hudson.plugins.groovy.Groovy.xml /usr/share/jenkins/ref/hudson.plugins.groovy.Groovy.xml
+# `/usr/share/jenkins/ref/` contains all reference configuration we want
+# to set on a fresh new installation. Use it to bundle additional plugins
+# or config file with your custom jenkins Docker image.
+RUN mkdir -p /usr/share/jenkins/ref/init.groovy.d
+
+ENV TINI_SHA 066ad710107dc7ee05d3aa6e4974f01dc98f3888
+
+# Use tini as subreaper in Docker container to adopt zombie processes
+RUN curl -fsSL https://github.com/krallin/tini/releases/download/v0.5.0/tini-static -o /bin/tini && chmod +x /bin/tini \
+  && echo "$TINI_SHA  /bin/tini" | sha1sum -c -
+
+#COPY init.groovy /usr/share/jenkins/ref/init.groovy.d/tcp-slave-agent-port.groovy
+
+ARG JENKINS_VERSION
+ENV JENKINS_VERSION ${JENKINS_VERSION:-2.0-beta-2}
+ARG JENKINS_SHA
+ENV JENKINS_SHA ${JENKINS_SHA:-55c08fd3d53a34998daab25c2e6b638b7d479d29}
+
+
+# could use ADD but this one does not check Last-Modified header
+# see https://github.com/docker/docker/issues/8331
+RUN curl -fsSL http://repo.jenkins-ci.org/public/org/jenkins-ci/main/jenkins-war/${JENKINS_VERSION}/jenkins-war-${JENKINS_VERSION}.war -o /usr/share/jenkins/jenkins.war \
+  && echo "$JENKINS_SHA  /usr/share/jenkins/jenkins.war" | sha1sum -c -
+
+ENV JENKINS_UC https://updates.jenkins-ci.org
+RUN chown -R ${user} "$JENKINS_HOME" /usr/share/jenkins/ref
+
+# for main web interface:
+EXPOSE 8080
+
+# will be used by attached slave agents:
+#EXPOSE 50000
+
+ENV COPY_REFERENCE_FILE_LOG $JENKINS_HOME/copy_reference_file.log
+
+USER ${user}
+
+COPY jenkins.sh /usr/local/bin/jenkins.sh
 COPY config/maven-global-settings-files.xml /usr/share/jenkins/ref/maven-global-settings-files.xml
-
 # SSH Keys & Credentials
 COPY config/credentials.xml /usr/share/jenkins/ref/credentials.xml
-COPY config/ssh-keys/cd-demo /usr/share/jenkins/ref/.ssh/id_rsa
-COPY config/ssh-keys/cd-demo.pub /usr/share/jenkins/ref/.ssh/id_rsa.pub
+
+ENTRYPOINT ["/bin/tini", "--", "/usr/local/bin/jenkins.sh"]
+
+
+
+
+
