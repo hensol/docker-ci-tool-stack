@@ -88,7 +88,7 @@ services:
   networks:
     - prodnetwork
  gitlab:
-  image: sameersbn/gitlab:8.3.2
+  image: gitlab/gitlab-ce
   ports:
     - "10080:80"
     - "10022:22"
